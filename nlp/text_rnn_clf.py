@@ -2,6 +2,45 @@ import torch
 from torch import nn
 
 
+class Classifier(nn.Module):
+    def __init__(self, in_feature, num_classes, hidden_units,
+                 n_hidden_layers, clf_dropout=None, activation=nn.ReLU()):
+        super().__init__()
+
+        classifier = []
+
+        for i in range(n_hidden_layers):
+            classifier.append(nn.Linear(in_feature, hidden_units))
+            classifier.append(activation)
+            if clf_dropout:
+                classifier.append(nn.Dropout(clf_dropout))
+            in_feature = hidden_units
+
+        classifier.append(nn.Linear(hidden_units, num_classes))
+
+        self.fully_connected = nn.Sequential(*classifier)
+
+    def forward(self, x):
+        return self.fully_connected(x)
+
+
+class RNNs(nn.Module):
+    def __init__(self, rnn_type, input_size, hidden_size, num_layers, bidirectional, dropout, batch_first):
+        super().__init__()
+
+        configs = {'input_size': input_size, 'hidden_size': hidden_size, 'num_layers': num_layers,
+                   'bidirectional': bidirectional, 'batch_first': batch_first, 'dropout': dropout}
+
+        rnn_dict = {'LSTM': nn.LSTM(**configs),
+                    'GRU': nn.GRU(**configs),
+                    'RNN': nn.RNN(**configs)}
+
+        self.rnn = rnn_dict[rnn_type]
+
+    def forward(self, x):
+        return self.rnn(x)
+
+
 class TextRNN(nn.Module):
     def __init__(self, num_classes, num_embeddings, embedding_dim,
                  num_classifier_layers=2, hidden_units=128,
@@ -18,44 +57,23 @@ class TextRNN(nn.Module):
 
         direction = 2 if bidirectional else 1
 
-        configs = {'input_size': embedding_dim, 'hidden_size': rnn_hidden_size, 'num_layers': num_rnn_layers,
-                   'bidirectional': bidirectional, 'batch_first': True, 'dropout': rnn_dropout}
-
-        rnn_dict = {'LSTM': nn.LSTM(**configs),
-                    'GRU': nn.GRU(**configs),
-                    'RNN': nn.RNN(**configs)}
-
         self.embedding = nn.Embedding(num_embeddings=num_embeddings,
                                       embedding_dim=embedding_dim,
                                       _weight=pt_weight,
                                       padding_idx=pd_idx)
 
-        self.rnn_layer = rnn_dict[rnn_type]
+        self.rnn_layer = RNNs(rnn_type=rnn_type, input_size=embedding_dim,
+                              hidden_size=rnn_hidden_size, num_layers=num_rnn_layers,
+                              bidirectional=bidirectional, dropout=rnn_dropout, batch_first=True)
 
         if self.pooling == 'last_hidden':
             self.out_rnn = num_rnn_layers * direction * rnn_hidden_size
         elif self.pooling == 'mean' or self.pooling == 'max':
             self.out_rnn = direction * rnn_hidden_size
 
-        intermediate = self.out_rnn
-
-        classifier = []
-
-        for i in range(num_classifier_layers):
-
-            if i == num_classifier_layers - 1:
-                classifier.append(nn.Linear(hidden_units, num_classes))
-                continue
-
-            classifier.append(nn.Linear(intermediate, hidden_units))
-            classifier.append(activation)
-
-            if clf_dropout:
-                classifier.append(nn.Dropout(clf_dropout))
-
-            intermediate = hidden_units
-
-        self.fully_connected = nn.Sequential(*classifier)
+        self.classifier = Classifier(in_feature=self.out_rnn, hidden_units=hidden_units,
+                                     num_classes=num_classes, n_hidden_layers=num_classifier_layers,
+                                     clf_dropout=clf_dropout, activation=activation)
 
     def forward(self, x):
         x = self.embedding(x)
@@ -72,7 +90,7 @@ class TextRNN(nn.Module):
         elif self.pooling == 'max':
             y = torch.max(out, dim=1)[0]
 
-        return self.fully_connected(y)
+        return self.classifier(y)
 
 
 class AttentionBiLSTM(nn.Module):
