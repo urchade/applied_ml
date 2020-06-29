@@ -9,7 +9,7 @@ class Classifier(nn.Module):
 
         classifier = []
 
-        for i in range(n_hidden_layers):
+        for i in range(n_hidden_layers-1):
             classifier.append(nn.Linear(in_feature, hidden_units))
             classifier.append(activation)
             if clf_dropout:
@@ -99,22 +99,15 @@ class AttentionBiLSTM(nn.Module):
                  rnn_dropout=0.1, att_dropout=0.3,
                  cls_dropout=0.3, rnn_type='LSTM',
                  bidirectional=True, num_heads=1, pad_idx=0):
-
         super().__init__()
 
         self.rnn_type = rnn_type
 
-        configs = {'input_size': embedding_dim, 'hidden_size': hidden_size,
-                   'bidirectional': bidirectional, 'batch_first': True,
-                   'dropout': rnn_dropout}
-
         self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=pad_idx, _weight=weight)
 
-        if self.rnn_type == 'LSTM':
-            self.rnn = nn.LSTM(**configs)
-
-        if self.rnn_type == 'GRU':
-            self.rnn = nn.GRU(**configs)
+        self.rnn = RNNs(rnn_type=self.rnn_type, input_size=embedding_dim, hidden_size=hidden_size,
+                        num_layers=1, bidirectional=bidirectional,
+                        dropout=rnn_dropout, batch_first=True)
 
         self.biLSTM_hidden = 2 * hidden_size
 
@@ -159,29 +152,17 @@ class DAN(nn.Module):
         self.emb = nn.Embedding(num_embeddings=n_emb, embedding_dim=emb_dim,
                                 padding_idx=pad_idx, _weight=weight)
 
-        modules = []
         in_features = emb_dim
 
         if hidden_size is None:
             hidden_size = emb_dim
 
-        for i in range(n_layers):
-
-            if dropout:
-                modules.append(nn.Dropout(dropout))
-
-            if i == n_layers - 1:
-                modules.append(nn.Linear(hidden_size, n_outputs))
-                continue
-
-            modules.append(nn.Linear(in_features, hidden_size))
-            modules.append(activation)
-            in_features = hidden_size
-
-        self.layers = nn.Sequential(*modules)
+        self.classifier = Classifier(in_features, n_outputs,
+                                     hidden_size, n_hidden_layers=n_layers,
+                                     clf_dropout=dropout, activation=activation)
 
     def forward(self, x):
         x = self.emb(x)  # (batch_size, seq_length, emb_dim)
         x = x.mean(dim=1)  # (batch_size, emb_dim)
-        x = self.layers(x)
+        x = self.classifier(x)
         return x  # (batch_size, n_outputs)
