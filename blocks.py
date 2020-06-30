@@ -11,7 +11,7 @@ class Classifier(nn.Module):
         for i in range(n_hidden_layers - 1):
             classifier.append(nn.Linear(in_feature, in_feature))
             classifier.append(activation)
-            if clf_dropout:
+            if clf_dropout:  # hah
                 classifier.append(nn.Dropout(clf_dropout))
 
         classifier.append(nn.Linear(in_feature, num_classes))
