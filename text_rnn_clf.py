@@ -1,5 +1,6 @@
 import torch
 from torch import nn
+from transformers import AutoModel
 
 from blocks import RNNs, Classifier, Conv1Df
 
@@ -200,3 +201,60 @@ class DAN(nn.Module):
         x = x.mean(dim=1)  # (batch_size, emb_dim)
         x = self.classifier(x)
         return x
+
+
+class BertClassifier(nn.Module):
+    def __init__(self, bert_name, num_classes, pooling='mean', clf_dropout=0.1, n_layers=1, act=nn.ReLU()):
+        """
+        Parameters
+        Bert-base text classifier.
+        ----------
+        bert_name: str
+            Name of the bert model. Ex = 'bert-base-uncased'
+        num_classes: int
+            Number of output classe
+        pooling: str
+            Pooling strategy for the classification.
+            Choice in ['cls', 'max', 'mean']. Default: 'mean'
+        clf_dropout: float
+            Dropout rate in the FFN layers. Default: 0.1
+        n_layers: int
+            Number of FFN layers on top of bert. Default: 1
+        act: nn.Module
+            Activation function the FFNs. Default: nn.ReLU()
+        """
+        super().__init__()
+
+        self.pooling = pooling
+        self.bert = AutoModel.from_pretrained(bert_name)
+
+        hidden_size = self.bert.config.hidden_size
+
+        self.classifier = Classifier(hidden_size, num_classes, n_hidden_layers=n_layers,
+                                     clf_dropout=clf_dropout, activation=act)
+
+    def forward(self, x, att_mask=None):
+        """
+        Parameters
+        ----------
+        x: Input IDs
+        att_mask: Attention mask
+        Returns
+        -------
+        Logits
+        """
+        out, cls = self.bert(x, att_mask)
+
+        if self.pooling == 'mean':
+            h = out.mean(1)
+        elif self.pooling == 'max':
+            h = torch.max(out, dim=1)[0]
+        elif self.pooling == 'cls':
+            h = cls
+
+        return self.classifier(h)
+
+
+model = BertClassifier('camembert-base', 1, 'cls')
+
+data = torch.randint(20000, size=(16, 10))
