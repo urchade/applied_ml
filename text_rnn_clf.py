@@ -6,24 +6,58 @@ from blocks import RNNs, Classifier, Conv1Df
 
 
 class TextRNN(nn.Module):
-    def __init__(self, num_classes, embedding_dim, len_vocab=None,
-                 num_classifier_layers=2,
+    def __init__(self, num_classes, embedding_dim, n_embeddings=None,
                  rnn_hidden_size=64, rnn_type='LSTM',
                  num_rnn_layers=1, bidirectional=False,
-                 pt_weight=None, activation=nn.ReLU(),
-                 pooling='last_hidden', pd_idx=0,
-                 rnn_dropout=0.0, clf_dropout=None):
+                 pooling='last_hidden', num_classifier_layers=2,
+                 pt_weight=None, ffn_activation=nn.ReLU(),
+                 pd_idx=0, rnn_dropout=0.0, clf_dropout=None):
+        """
+        Implementation of RNN-based text classifier
+        Parameters
+        ----------
+        num_classes: int
+            Number of classes
+        embedding_dim: int
+            Input dim for the RNN
+        n_embeddings: int or None
+            Number of word in the vocabulary.
+            If None => no embedding layer added.
+        num_classifier_layers: int
+            Number of layer for the classifier
+        rnn_hidden_size: int
+            RNN hidden size
+        rnn_type: str
+            choice between 'LSTM', 'GRU' or 'RNN'. Default: 'LSTM'
+        num_rnn_layers: int
+            Number of layers for the RNN
+        bidirectional: bool
+            Bi-RNN if True.
+        pt_weight: Tensor
+            Weight for the embedding layer
+        ffn_activation: nn.Module
+            activation function for the FFN layers
+        pooling: str
+            pooling strategy for the RNN.
+            Choice between 'last_hidden', 'max' or 'mean'
+        pd_idx: int
+            padding index of the embedding layer
+        rnn_dropout: float
+            Dropout rate for the RNN
+        clf_dropout: float
+            Dropout rate for the FFN layers.
+        """
 
         super().__init__()
 
         self.rnn_type = rnn_type
         self.pooling = pooling
-        self.len_vocab = len_vocab
+        self.len_vocab = n_embeddings
 
         direction = 2 if bidirectional else 1
 
         if self.len_vocab is not None:
-            self.embedding = nn.Embedding(num_embeddings=len_vocab,
+            self.embedding = nn.Embedding(num_embeddings=n_embeddings,
                                           embedding_dim=embedding_dim,
                                           _weight=pt_weight,
                                           padding_idx=pd_idx)
@@ -39,7 +73,7 @@ class TextRNN(nn.Module):
 
         self.classifier = Classifier(in_feature=self.out_rnn,
                                      num_classes=num_classes, n_hidden_layers=num_classifier_layers,
-                                     clf_dropout=clf_dropout, activation=activation)
+                                     clf_dropout=clf_dropout, activation=ffn_activation)
 
     def forward(self, x):
 
@@ -62,9 +96,13 @@ class TextRNN(nn.Module):
 
 
 class TextCNN(nn.Module):
-    def __init__(self, n_out, num_embeddings, embedding_dim, channels=[16, 32, 64],
-                 kernel_sizes=[3, 3, 3], last_pooling='mean', pad_idx=0, weight=None, activation=nn.ReLU(),
+    def __init__(self, n_out, num_embeddings,
+                 embedding_dim, channels=[16, 32, 64],
+                 kernel_sizes=[3, 3, 3], last_pooling='mean',
+                 pad_idx=0, weight=None,
+                 activation=nn.ReLU(),
                  dropout=0.1):
+
         super().__init__()
         self.out_chan = channels[-1]
         self.last_pooling = last_pooling
@@ -194,7 +232,7 @@ class DAN(nn.Module):
 
         self.classifier = Classifier(in_features, n_outputs,
                                      n_hidden_layers=n_layers,
-                                     clf_dropout=dropout, activation=activation, )
+                                     clf_dropout=dropout, activation=activation)
 
     def forward(self, x):
         x = self.emb(x)  # (batch_size, seq_length, emb_dim)
@@ -253,8 +291,3 @@ class BertClassifier(nn.Module):
             h = cls
 
         return self.classifier(h)
-
-
-model = BertClassifier('camembert-base', 1, 'cls')
-
-data = torch.randint(20000, size=(16, 10))
