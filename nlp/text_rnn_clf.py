@@ -9,7 +9,7 @@ class Classifier(nn.Module):
 
         classifier = []
 
-        for i in range(n_hidden_layers-1):
+        for i in range(n_hidden_layers - 1):
             classifier.append(nn.Linear(in_feature, hidden_units))
             classifier.append(activation)
             if clf_dropout:
@@ -39,6 +39,34 @@ class RNNs(nn.Module):
 
     def forward(self, x):
         return self.rnn(x)
+
+
+class Conv1Df(nn.Module):
+    def __init__(self, in_channels, channels=[8, 16, 32], kernel_sizes=[2, 3, 4], act=nn.ReLU()):
+        super().__init__()
+        assert len(channels) == len(kernel_sizes)
+
+        self.layers = nn.ModuleList()
+
+        for out_channel, kernel in zip(channels, kernel_sizes):
+            conv_layer = nn.Conv1d(in_channels, out_channel, kernel, padding=int((kernel - 1) / 2))
+            norm = nn.BatchNorm1d(out_channel)
+            layer = [conv_layer, act, norm]
+            self.layers.append(nn.Sequential(*layer))
+            in_channels = out_channel
+
+    def forward(self, x):
+
+        for i, layer in enumerate(self.layers):
+
+            condition = i > 1 + i < len(self.layers)
+
+            if condition:
+                x = layer(x) + x  # Skip connection
+            else:
+                x = layer(x)
+
+        return x
 
 
 class TextRNN(nn.Module):
@@ -91,6 +119,30 @@ class TextRNN(nn.Module):
             y = torch.max(out, dim=1)[0]
 
         return self.classifier(y)
+
+
+class TextCNN(nn.Module):
+    def __init__(self, n_out, num_embeddings, embedding_dim, channels=[16, 32, 64],
+                 kernel_sizes=[3, 3, 3], last_pooling='mean', pad_idx=0, weight=None, activation=nn.ReLU()):
+        super().__init__()
+        self.out_chan = channels[-1]
+        self.last_pooling = last_pooling
+        self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=pad_idx, _weight=weight)
+        self.conv = Conv1Df(in_channels=embedding_dim, channels=channels, kernel_sizes=kernel_sizes, act=activation)
+        self.classifier = nn.Linear(channels[-1], n_out)
+
+    def forward(self, x):
+        x = self.embedding(x)
+        x = x.transpose(1, 2)
+        x = self.conv(x)
+        if self.last_pooling == 'mean':
+            x = x.mean(-1)
+        elif self.last_pooling == 'max':
+            x = torch.max(x, dim=-1)[0]
+        return self.classifier(x)
+
+
+
 
 
 class AttentionBiLSTM(nn.Module):
