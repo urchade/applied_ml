@@ -199,4 +199,4 @@ class DAN(nn.Module):
         x = self.emb(x)  # (batch_size, seq_length, emb_dim)
         x = x.mean(dim=1)  # (batch_size, emb_dim)
         x = self.classifier(x)
-        return x  # (batch_size, n_outputs)
+        return x
