@@ -96,7 +96,7 @@ class TextRNN(nn.Module):
 
 
 class TextCNN(nn.Module):
-    def __init__(self, n_out, num_embeddings,
+    def __init__(self, n_out, len_vocab,
                  embedding_dim, channels=[16, 32, 64],
                  kernel_sizes=[3, 3, 3], last_pooling='mean',
                  pad_idx=0, weight=None,
@@ -106,7 +106,12 @@ class TextCNN(nn.Module):
         super().__init__()
         self.out_chan = channels[-1]
         self.last_pooling = last_pooling
-        self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=pad_idx, _weight=weight)
+
+        self.len_vocab = len_vocab
+
+        if self.len_vocab is not None:
+            self.embedding = nn.Embedding(len_vocab, embedding_dim,
+                                          padding_idx=pad_idx, _weight=weight)
 
         self.conv = Conv1Df(in_channels=embedding_dim, channels=channels,
                             kernel_sizes=kernel_sizes, act=activation,
@@ -115,7 +120,8 @@ class TextCNN(nn.Module):
         self.classifier = nn.Linear(channels[-1], n_out)
 
     def forward(self, x):
-        x = self.embedding(x)
+        if self.len_vocab:
+            x = self.embedding(x)
         x = x.transpose(1, 2)
         x = self.conv(x)
         if self.last_pooling == 'mean':
@@ -147,26 +153,27 @@ class TextConvRNN(nn.Module):
         return self.rnn(x)
 
 
-class TextRNNCONV(nn.Module):
+class TextRNNConv(nn.Module):
     def __init__(self, num_classes, num_embeddings, embedding_dim=50, rnn_hidden=64,
-                 rnn_type='LSTM', rnn_layer=1, rnn_pooling='max', bidirectional_rnn=False, conv_channels=[16, 32, 64],
+                 rnn_type='LSTM', rnn_layer=1, cnn_pooling='max', bidirectional_rnn=False, conv_channels=[16, 32, 64],
                  conv_kernel_sizes=[3, 3, 3], pad_idx=None, emb_weight=None, rnn_dropout=0.0, clf_dropout=0.1):
         super().__init__()
 
         self.embedding = nn.Embedding(num_embeddings, embedding_dim, padding_idx=pad_idx, _weight=emb_weight)
 
-        self.conv = Conv1Df(in_channels=embedding_dim, channels=conv_channels, kernel_sizes=conv_kernel_sizes)
+        self.rnn = RNNs(rnn_type=rnn_type, input_size=embedding_dim, hidden_size=rnn_hidden, num_layers=rnn_layer,
+                        bidirectional=bidirectional_rnn, dropout=rnn_dropout, batch_first=True)
+        # Conv1Df(in_channels=embedding_dim, channels=conv_channels, kernel_sizes=conv_kernel_sizes)
 
-        self.rnn = TextRNN(num_classes, conv_channels[-1], num_classifier_layers=1, rnn_hidden_size=rnn_hidden,
-                           rnn_type=rnn_type, num_rnn_layers=rnn_layer, bidirectional=bidirectional_rnn,
-                           rnn_dropout=rnn_dropout, clf_dropout=clf_dropout, pooling=rnn_pooling)
+        direction = 2 if bidirectional_rnn else 1
+
+        self.cnn = TextCNN(num_classes, None, direction * rnn_hidden, conv_channels,
+                           conv_kernel_sizes, cnn_pooling, dropout=clf_dropout)
 
     def forward(self, x):
         x = self.embedding(x)
-        x = x.transpose(1, 2)
-        x = self.conv(x)
-        x = x.transpose(1, 2)
-        return self.rnn(x)
+        x = self.rnn(x)[0]
+        return self.cnn(x)
 
 
 class AttentionBiLSTM(nn.Module):

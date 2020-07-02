@@ -14,7 +14,7 @@ class Classifier(nn.Module):
             if clf_dropout:
                 classifier.append(nn.Dropout(clf_dropout))
 
-        if n_hidden_layers == 1:
+        if n_hidden_layers == 1 and clf_dropout:
             classifier.append(nn.Dropout(clf_dropout))
 
         classifier.append(nn.Linear(in_feature, num_classes))
@@ -33,7 +33,7 @@ class RNNs(nn.Module):
                    'bidirectional': bidirectional, 'batch_first': batch_first, 'dropout': dropout}
 
         rnn_dict = {'LSTM': nn.LSTM(**configs),
-                    'GRU': nn.GRU(**configs),
+                    'GRU': nn.GRU(**configs, ),
                     'RNN': nn.RNN(**configs)}
 
         self.rnn = rnn_dict[rnn_type]
@@ -68,3 +68,28 @@ class Conv1Df(nn.Module):
                 x = layer(x)
 
         return x
+
+
+class FFN(nn.Module):
+    def __init__(self, in_feature=10, hidden=100, out=19, num_layers=3, act=nn.ReLU(), dropout=0.):
+        super().__init__()
+
+        modules = []
+
+        for i in range(num_layers):
+
+            if i == num_layers - 1:
+                modules.append(nn.Linear(in_feature, out))
+                break
+
+            linear = nn.Linear(in_feature, hidden)
+            activation = act
+            d = nn.Dropout(dropout)
+            block = [linear, activation, d]
+            modules.append(nn.Sequential(*block))
+            in_feature = hidden
+
+        self.layers = nn.Sequential(*modules)
+
+    def forward(self, x):
+        return self.layers(x)
