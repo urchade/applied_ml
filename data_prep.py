@@ -1,7 +1,8 @@
+import fr_core_news_sm
 import numpy as np
 import pandas as pd
-import spacy
 import torch
+from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.preprocessing import LabelEncoder
 from torch.utils.data import Dataset
 
@@ -16,7 +17,10 @@ class TextPreprocessor:
 
         print('Loading Spacy ....')
         # disable=['ner', 'tagger', 'parser'] for faster tokenization
-        self.nlp = spacy.load('fr_core_news_sm', disable=['ner', 'tagger', 'parser'])
+        self.nlp = fr_core_news_sm.load(disable=['ner', 'tagger', 'parser'])
+
+        self.cleaner = lambda x: [str(a.lemma_).lower() for a in self.nlp(x)
+                                  if not (a.is_stop or not a.is_alpha)]
 
         self.train = pd.read_csv(train_path)
 
@@ -26,6 +30,11 @@ class TextPreprocessor:
         self.label_encode.fit(self.train['Label'].values)
 
         print(f'Number of classes: {self.n_classes}')
+
+        print
+        self.vectorizer = TfidfVectorizer()
+        self.vectorizer.fit(self.train['Texte'].apply(lambda x: ' '.join([str(a.lemma_).lower() for a in self.nlp(x)
+                                                                          if not (a.is_stop or not a.is_alpha)])))
 
         self.id2word, self.word2id = self.get_vocab_dicts()
 
@@ -40,8 +49,7 @@ class TextPreprocessor:
         Return word dictionaries using the training set
 
         """
-        text_list = self.train['Texte'].apply(lambda x: [str(a.lemma_).lower() for a in self.nlp(x)
-                                                         if not (a.is_stop or not a.is_alpha)])
+        text_list = self.train['Texte'].apply(self.cleaner)
 
         id2word = dict(enumerate(set([a for s in text_list for a in s]), start=1))
         id2word[0] = '<padding>'
@@ -104,8 +112,7 @@ class TextPreprocessor:
         -------
         text_ids, text_tokens
         """
-        text_tokens = data.apply(lambda x: [str(a.lemma_).lower() for a in self.nlp(x)
-                                            if not (a.is_stop or not a.is_alpha)])
+        text_tokens = data.apply(self.cleaner)
 
         text_ids = text_tokens.apply(lambda x: self.convert2idx(x))
         text_ids = text_ids.apply(lambda x: self.pad_sequence(x))
@@ -114,7 +121,8 @@ class TextPreprocessor:
 
     def get_bert_ids(self, text, tokenizer):
         text = text.apply(lambda x: x.lower())
-        ids = text.apply(lambda x: tokenizer.encode(x, max_length=self.seq_len, pad_to_max_length=True))
+        ids = text.apply(lambda x: tokenizer.encode(x, max_length=self.seq_len,
+                                                    pad_to_max_length=True, truncation=True))
         mask = ids.apply(lambda x: list(map(lambda a: 0 if a in [tokenizer.pad_token_id] else 1, x)))
         return ids, mask
 
@@ -135,6 +143,15 @@ class TextPreprocessor:
 
         return ids, pad_mask, label
 
+    def get_tf_idf(self, path):
+        data = pd.read_csv(path)
+        label = self.label_encode.transform(data.Label)
+        features = self.vectorizer.transform(
+            data.Texte.apply(lambda x: ' '.join([str(a.lemma_).lower() for a in self.nlp(x)
+                                                 if not (a.is_stop or not a.is_alpha)])))
+
+        return features.toarray(), label
+
 
 class NlpDataset(Dataset):
     def __init__(self, data: tuple):
@@ -143,6 +160,22 @@ class NlpDataset(Dataset):
         self.x = torch.Tensor(sequences).long()
         self.y = torch.Tensor(labels).long()
         self.mask = torch.BoolTensor(mask)
+
+    def __len__(self):
+        return len(self.x)
+
+    def __getitem__(self, item):
+        return self.x[item], self.y[item], self.mask[item]
+
+
+class TFIDF(Dataset):
+    def __init__(self, data: tuple):
+        sequences, labels = data
+
+        self.x = torch.Tensor(sequences).float()
+        self.y = torch.Tensor(labels).long()
+
+        self.mask = torch.zeros_like(self.x)
 
     def __len__(self):
         return len(self.x)
