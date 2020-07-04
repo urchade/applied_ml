@@ -124,10 +124,11 @@ class ClassifierTrainer:
 
         return np.mean(train_errors), self.metric(true_ids, pred_ids)
 
-    def train(self, max_epoch=10, patience=3):
+    def train(self, max_epoch=10, patience=3, save_path=None):
         """
         Parameters
         ----------
+        save_path
         max_epoch: Maximum number of epochs
         patience: Patience for early stopping
         """
@@ -151,6 +152,10 @@ class ClassifierTrainer:
             if val_metric > best_metric:
                 best_metric = val_metric
                 self.best_state_dict = self.model.state_dict()
+
+                if save_path is not None:
+                    torch.save(self.model.state_dict(), f'{save_path}_{j}.pt')
+
                 self.optimal_num_epochs = i
                 j = 0
             else:
